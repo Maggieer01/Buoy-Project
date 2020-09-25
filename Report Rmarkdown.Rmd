@@ -1,0 +1,220 @@
+---
+title: "Boston Buoy Project Report"
+author: "Maggie Sha"
+date: "2020/9/25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadTidyverse, warining = FALSE, results='hide',message = FALSE, echo=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(tidyr)
+library(citation)
+```
+
+## Project Question
+
+Global warming has became a popular topic. It is trending on TV, books, advertisements on the roadside, almost everywhere, to alarm people that our earth is experiencing quick change to a dreadful direction due to human activities. Our question for this project is, are we able to find the evidence of global warming using the collected data by a single weather buoy at Boston in the NOAA National Data Buoy Center?
+
+
+## Data Source
+
+We are using a publically available dataset from NDBC, National Data Buoy Center.
+
+  * The data is from https://www.ndbc.noaa.gov/station_page.php?station=44013
+  * In this report, we only utilize data from year1998 to 2018.
+
+```{r DataManipulation, results = "hide", message=FALSE, echo = FALSE}
+url1 <- "https://www.ndbc.noaa.gov/view_text_file.php?filename=44013h"
+url2 <- ".txt.gz&dir=data/historical/stdmet/"
+years <- c(1998:2018)
+urls <- str_c(url1, years, url2, sep = "")
+filenames <- str_c("buoy", years, sep = "")
+N <- length(urls)
+for (i in 1:N){
+  if (i <= 7) {
+    suppressMessages(assign(filenames[i], read_table(urls[i], col_names = c("YYYY","MM","DD","hh","WDIR","WSPD", "GST","WVHT","DPD","APD", "MWD","PRES","ATMP","WTMP","DEWP","VIS","TIDE"), skip = 1)))}
+  else {
+  suppressMessages(assign(filenames[i], read_table(urls[i], col_names = c("YYYY","MM","DD","hh","mm","WDIR","WSPD", "GST","WVHT","DPD","APD",    "MWD","PRES","ATMP","WTMP","DEWP","VIS","TIDE"), skip = 2))
+    )}
+    
+  file <- get(filenames[i])
+  colnames(file)[1] <-"YYYY"
+  if (i == 1) {
+    file[i] = file[i] + 1900
+  }
+  if (i <= 3) {
+    file[,'TIDE'] = 0
+  }
+  if (i <= 7) {
+    file[,'mm'] = 0
+  }
+  if(i == 1){
+    MR <- file
+  }
+  else{
+    MR <- rbind.data.frame(MR, file)
+  }
+}
+MR <- filter(MR, MR$ATMP < 50)
+MR$MM <- as.numeric(MR$MM)
+```
+## Approach and organization of the work
+
+In this dataset, there are many irrelevant data such as wind direction, pressure, etc, and data without meaning, such as TIDE, which filled only by number 99. For this project, I do not use data other than time, including year, month, day, and hour, and ATMP, the air temperature. 
+
+
+The buoy data is collected from 1984 until now, I choose the most recent 21 years from 1998 to 2018 to do the analysis. To find the most typical result, I focus on the most hottest moment, which is 2pm in the afternoon for every day. Because the ATMP of the same month in the same year is very close, I use the average air temperature of each month instead of analyzing on every day for 21 years. By doing so, if I can get the scatterplots with clear positive slope on the average temperature of every month from 1998 to 2018, the result would be very convincing on showing the global warming trend.
+
+
+After I go to the dataset in detail, I find there are many things that need to be organized. The task includes renaming the columns, unifying the column number and type, substituting the NA data, and filtering the air temperature data with extreme valus such as 99 celcius and 999 celcius, which are impossible. Finally, I put all the data into one data frame called "MR".
+
+
+Then, I narrow the scope to only see data at 2pm from 1998 to 2018.
+```{r Show_data}
+two_pm <- MR[MR$hh %in% c("14"), ]
+print(two_pm)
+```
+
+
+The next step is to collect the average number of air temperature of each month into one dataframe. I start from one year, the year 1998, and one month, which is January, to do the calculation. After I getting the average ATMP of January, I put it into a set called "ave", and then I calculate the average ATMP of February in 1998, putting the result into "ave" again. Following the same process, "ave" contains 12 average ATMP number of each month in 1998 in the end.
+
+Next, I build a dataframe called "data_frame" with 13 rows and 21 columns to collect year number and its corresponding 12 average temperature numbers in each column. For example, the first column will be "1998, (following by 12 averages.)". After year 1998 is finished, I keep doing the same work for year 1999, until I have all 21 years included in "data_frame". Finally, I switch the columns and rows to make the columns be "year,Jan,Feb...Dec", and give the new dataframe a name "final.df"
+
+Notice there are six NA data because of the missing value of ATMP from January to June in 2012 in the dataset.
+
+```{r DataFrame, echo = FALSE}
+for (i in 1998:2018){
+  year <- two_pm[two_pm$YYYY %in% c(i),]
+  for (j in 1:12) {
+    month <- year[year$MM %in% c(j),]
+    if (j == 1){
+      ave = mean(month$ATMP)
+    } else {
+      ave <- rbind(ave, mean(month$ATMP))
+    }
+  }
+  if (i == 1998) {
+    data_frame <- rbind.data.frame("year" = i, "ave_temp" <- ave)
+  } else {
+    data_frame <- cbind.data.frame(data_frame, rbind.data.frame("year" = i, "ave_temp" <- ave))
+  }
+}
+```
+
+```{r Show_dataFrame}
+final.df <- as.data.frame(t(data_frame))
+colnames(final.df) = c("year","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+print(final.df)
+```
+
+## Plot
+Based on the "final.df" dataframe, I use ggplot to get the scatterplot of average temperature of each month among 21 years. So there are 12 plots, standing for average air temperature at 2pm in January from 1998 to 2018, average air temperature at 2pm in February from 1998 to 2018, etc.
+```{r Plot,echo = FALSE,message=FALSE,warning=FALSE}
+jan <-ggplot(data=final.df, aes(x=year, y=Jan)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "January") + geom_smooth(method = lm)
+
+
+feb <- ggplot(data=final.df, aes(x=year, y=Feb)) +
+  geom_point()+
+  labs(x="Year", y="ATMP", title= "February") +geom_smooth(method = lm)
+
+
+mar <-ggplot(data=final.df, aes(x=year, y=Mar)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "March") + geom_smooth(method = lm)
+
+
+apr <-ggplot(data=final.df, aes(x=year, y=Apr)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "April") +geom_smooth(method = lm)
+
+
+may <-ggplot(data=final.df, aes(x=year, y=May)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "May") +geom_smooth(method = lm)
+
+
+jun <-ggplot(data=final.df, aes(x=year, y=Jun)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "June")+geom_smooth(method = lm)
+
+
+jul <-ggplot(data=final.df, aes(x=year, y=Jul)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "July") +geom_smooth(method = lm)
+
+
+aug <-ggplot(data=final.df, aes(x=year, y=Aug)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "August") +geom_smooth(method = lm)
+
+
+sep <-ggplot(data=final.df, aes(x=year, y=Sep)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "September") +geom_smooth(method = lm)
+
+
+oct <-ggplot(data=final.df, aes(x=year, y=Oct)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "October") +geom_smooth(method = lm)
+
+
+nov <-ggplot(data=final.df, aes(x=year, y=Nov)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "November") +geom_smooth(method = lm)
+
+
+dem <-ggplot(data=final.df, aes(x=year, y=Dec)) + 
+  geom_point() +
+  labs(x="Year", y="ATMP", title= "December") +geom_smooth(method = lm)
+
+figure <- ggarrange(jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, 
+                    dem,ncol = 3, nrow = 4)
+```
+
+
+
+## Visialization
+```{r graphical,fig.align='center', fig.height=7}
+library(png)
+library(grid)
+
+img = readPNG("Rplot.png")
+grid.raster(img)
+```
+
+## Analysis and conclusion
+I fit a linear model with se = TRUE to the change in average air temperature in each month over 21 years to look at the slopes.From the plots, we can see that while in the summer season the slopes are intuitively positive, they are relatively flat in the winter season. From May to October, the gray zone which stands for the 95% confidence interval is thinner than that in other months, this means the uncertainty in these months is small. From November to April, the uncertainty is larger and the average temperature fluctuates more. 
+
+Bases on the plots, we can conclude that there is evidence of obvious temperature increasing in the warm seasons (temperature greater than 10 celcius). To be specific, May to October from year 1998 to 2018. This can be viewed as a strong evidence of global warming.
+
+
+While from November to April, when the temperature is low (less than 10 celcius), the evidence is not too strong, and in March the slope is even negative. Can we use this as the evidence to say global warming is fake? My answer is no. 
+
+The first reason is related to climatology. Since the buoy locates in Boston, it stands for mid-latitude region in the Northern hemisphere. According to climatology, when global warming happens, the melting of glaciers in the Arctic region will cause the cold air moves towards south from high latitudes, thus in the winter season we still feel cold or colder in Boston.
+
+The second reason is, the decreasing temperature in cold seasons only happends in some region, such as the east coast of the United States and Europe. In many other region the temperature in winter seasons is increasing. According to NOAA's global climate report, the global temperature in winter seasons increased tremendously from 1910 to 2020.
+
+## References
+NOAA.(2020).Global Climate Report[online].
+Available from:https://www.ncdc.noaa.gov/sotc/global/202006
+[accessed 25 September 2020].
+```{r citation, error=FALSE}
+citation("ggplot2")
+citation("tidyr")
+citation("citation")
+citation("ggpubr")
+```
+citation(package="tidyverse")
+
+ Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source
+  Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+
+
